@@ -58,24 +58,31 @@ func (generator *CandidateGenerator) keepHighest(group ConflictGroup) Suggestion
 		}
 		return windows[i].ID < windows[j].ID
 	})
-	keep := []uint{windows[0].ID}
+	channels := maxInt(1, group.Capacity)
+	keep := make([]uint, 0, len(windows))
 	move := make([]uint, 0)
 	priorityLoss := 0.0
-	duration := windows[0].DurationSec()
-	for _, window := range windows[1:] {
-		if window.Locked {
+	duration := 0
+	for _, window := range windows {
+		switch {
+		case window.Locked:
 			keep = append(keep, window.ID)
-			continue
+			duration += window.DurationSec()
+		case len(keep) < channels:
+			keep = append(keep, window.ID)
+			duration += window.DurationSec()
+		default:
+			move = append(move, window.ID)
+			priorityLoss += float64(window.Priority) + generator.satellites[window.SatelliteID].PriorityWeight
 		}
-		move = append(move, window.ID)
-		priorityLoss += float64(window.Priority) + generator.satellites[window.SatelliteID].PriorityWeight
 	}
-	requiresManual := len(keep) > maxInt(1, group.Capacity) || group.ConflictType == constants.ConflictTypeDurationShortfall || group.ConflictType == constants.ConflictTypeBandMismatch
+	requiresManual := len(keep) > channels || group.ConflictType == constants.ConflictTypeDurationShortfall || group.ConflictType == constants.ConflictTypeBandMismatch
 	return Suggestion{
 		ActionKey: fmt.Sprintf("keep-priority-%d", windows[0].ID), ActionType: "keep_high_priority",
-		Title:         fmt.Sprintf("Keep window #%d on the current plan", windows[0].ID),
-		Rationale:     "Ranks locked windows first, then combines request priority, satellite weight, duration, and stable ID order.",
+		Title:         fmt.Sprintf("Keep %d of %d windows within %d channel(s)", len(keep), len(windows), channels),
+		Rationale:     "Places locked windows first, then fills remaining channels by request priority, satellite weight, duration, and stable ID order.",
 		KeepWindowIDs: keep, MoveWindowIDs: move, RequiresManual: requiresManual,
+		KeepCount: len(keep), MoveCount: len(move), AvailableChannels: channels,
 		Score: Score(generator.weights, priorityLoss, 0, duration, group.Capacity-len(keep)),
 	}
 }
@@ -117,6 +124,7 @@ func (generator *CandidateGenerator) alternateWindow(group ConflictGroup) (Sugge
 			Title:         fmt.Sprintf("Use source-matched window #%d", alternate.ID),
 			Rationale:     "Selects the nearest stable opportunity produced by the same offline orbit source version.",
 			KeepWindowIDs: []uint{alternate.ID}, MoveWindowIDs: []uint{affected.ID}, AlternateWindowID: &alternate.ID,
+			KeepCount: 1, MoveCount: 1, AvailableChannels: maxInt(1, group.Capacity),
 			Score: Score(generator.weights, loss, 0, alternate.DurationSec(), 0),
 		}, true
 	}
@@ -168,6 +176,7 @@ func (generator *CandidateGenerator) compatibleStation(group ConflictGroup) (Sug
 			Title:         fmt.Sprintf("Evaluate %s for window #%d", target.StationCode, affected.ID),
 			Rationale:     "Chooses the nearest active band-compatible station with capacity remaining in the same interval.",
 			MoveWindowIDs: []uint{affected.ID}, TargetStationID: &target.ID,
+			KeepCount: 0, MoveCount: 1, AvailableChannels: maxInt(1, group.Capacity),
 			Score: Score(generator.weights, 0, distance, affected.DurationSec(), margin),
 		}, true
 	}
@@ -217,7 +226,9 @@ func (generator *CandidateGenerator) manual(group ConflictGroup) Suggestion {
 	}
 	return Suggestion{
 		ActionKey: "manual-review-" + group.Key, ActionType: "manual_review", Title: "Keep unresolved for manual planning",
-		Rationale: rationale, KeepWindowIDs: ids, RequiresManual: true, Score: Score(generator.weights, 0, 0, duration, 0),
+		Rationale: rationale, KeepWindowIDs: ids, RequiresManual: true,
+		KeepCount: len(ids), MoveCount: 0, AvailableChannels: maxInt(1, group.Capacity),
+		Score: Score(generator.weights, 0, 0, duration, 0),
 	}
 }
 

@@ -29,6 +29,9 @@ type ResolutionSuggestion struct {
 	Rationale         string         `json:"rationale"`
 	KeepWindowIDs     []uint         `json:"keep_window_ids"`
 	MoveWindowIDs     []uint         `json:"move_window_ids"`
+	KeepCount         int            `json:"keep_count"`
+	MoveCount         int            `json:"move_count"`
+	AvailableChannels int            `json:"available_channels"`
 	TargetStationID   *uint          `json:"target_station_id,omitempty"`
 	AlternateWindowID *uint          `json:"alternate_window_id,omitempty"`
 	RequiresManual    bool           `json:"requires_manual"`

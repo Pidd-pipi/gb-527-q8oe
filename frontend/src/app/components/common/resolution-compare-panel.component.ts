@@ -12,7 +12,7 @@ import { ConflictResolution, ResolutionSuggestion } from '../../types/conflict';
         [class.selected]="selectedKey === suggestion.action_key" [disabled]="readonly" (click)="choose(suggestion)">
         <span class="rank">{{ index + 1 }}</span>
         <span class="body"><strong>{{ suggestion.title }}</strong><small>{{ suggestion.rationale }}</small>
-          <span class="tags"><i>score {{ suggestion.score.total_score | number:'1.2-2' }}</i><i>loss {{ suggestion.score.priority_loss }}</i><i>{{ suggestion.score.contact_duration_sec }} sec</i><i *ngIf="suggestion.requires_manual">manual</i></span>
+          <span class="tags"><i>keep {{ keepCount(suggestion) }}</i><i>move {{ moveCount(suggestion) }}</i><i>channels {{ channels(suggestion) }}</i><i>score {{ suggestion.score.total_score | number:'1.2-2' }}</i><i>loss {{ suggestion.score.priority_loss }}</i><i>{{ suggestion.score.contact_duration_sec }} sec</i><i *ngIf="suggestion.requires_manual">manual</i></span>
         </span>
         <span class="choice">{{ selectedKey === suggestion.action_key ? 'SELECTED' : 'SELECT' }}</span>
       </button>
@@ -41,4 +41,7 @@ export class ResolutionComparePanelComponent {
   @Input() readonly = false;
   @Output() selectedKeyChange = new EventEmitter<string>();
   choose(suggestion: ResolutionSuggestion): void { if (!this.readonly) this.selectedKeyChange.emit(suggestion.action_key); }
+  keepCount(suggestion: ResolutionSuggestion): number { return suggestion.keep_count ?? suggestion.keep_window_ids.length; }
+  moveCount(suggestion: ResolutionSuggestion): number { return suggestion.move_count ?? suggestion.move_window_ids.length; }
+  channels(suggestion: ResolutionSuggestion): number { return suggestion.available_channels ?? this.resolution?.evidence.capacity ?? 0; }
 }
