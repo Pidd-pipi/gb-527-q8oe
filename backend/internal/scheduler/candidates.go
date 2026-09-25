@@ -38,46 +38,103 @@ func (generator *CandidateGenerator) Generate(group ConflictGroup) []Suggestion 
 		suggestions = append(suggestions, relocation)
 	}
 	suggestions = append(suggestions, generator.manual(group))
+	for index := range suggestions {
+		generator.decorateCounts(group, &suggestions[index])
+	}
 	StableSortSuggestions(suggestions)
 	return suggestions
 }
 
+// decorateCounts exposes the three figures reviewers need: how many windows
+// the option keeps, how many it queues for removal, and how many antenna
+// channels remain free at the station after the option is applied.
+func (generator *CandidateGenerator) decorateCounts(group ConflictGroup, suggestion *Suggestion) {
+	suggestion.KeptCount = len(suggestion.KeepWindowIDs)
+	suggestion.MovedCount = len(suggestion.MoveWindowIDs)
+	if group.ConflictType != constants.ConflictTypeStationCapacity && group.ConflictType != constants.ConflictTypeSlewBuffer {
+		suggestion.AvailableChannels = 0
+		return
+	}
+	remaining := maxInt(1, group.Capacity) - len(suggestion.KeepWindowIDs)
+	suggestion.AvailableChannels = maxInt(0, remaining)
+}
+
 func (generator *CandidateGenerator) keepHighest(group ConflictGroup) Suggestion {
-	windows := append([]model.ContactWindow(nil), group.Windows...)
-	sort.SliceStable(windows, func(i, j int) bool {
-		if windows[i].Locked != windows[j].Locked {
-			return windows[i].Locked
-		}
-		left := float64(windows[i].Priority) + generator.satellites[windows[i].SatelliteID].PriorityWeight
-		right := float64(windows[j].Priority) + generator.satellites[windows[j].SatelliteID].PriorityWeight
-		if left != right {
-			return left > right
-		}
-		if windows[i].DurationSec() != windows[j].DurationSec() {
-			return windows[i].DurationSec() > windows[j].DurationSec()
-		}
-		return windows[i].ID < windows[j].ID
-	})
-	keep := []uint{windows[0].ID}
-	move := make([]uint, 0)
-	priorityLoss := 0.0
-	duration := windows[0].DurationSec()
-	for _, window := range windows[1:] {
+	channels := maxInt(1, group.Capacity)
+	lockedWindows := make([]model.ContactWindow, 0)
+	openWindows := make([]model.ContactWindow, 0)
+	for _, window := range group.Windows {
 		if window.Locked {
+			lockedWindows = append(lockedWindows, window)
+		} else {
+			openWindows = append(openWindows, window)
+		}
+	}
+	// Locked inputs are placed first and can never be moved; the remaining
+	// channels are then filled in the same stable ranking reviewers see.
+	sort.SliceStable(lockedWindows, func(i, j int) bool { return lockedWindows[i].ID < lockedWindows[j].ID })
+	sort.SliceStable(openWindows, func(i, j int) bool { return generator.ranksBefore(openWindows[i], openWindows[j]) })
+	keep := make([]uint, 0, len(group.Windows))
+	for _, window := range lockedWindows {
+		keep = append(keep, window.ID)
+	}
+	move := make([]uint, 0)
+	openSlots := channels - len(lockedWindows)
+	priorityLoss, duration := 0.0, 0
+	for _, window := range lockedWindows {
+		duration += window.DurationSec()
+	}
+	for _, window := range openWindows {
+		if openSlots > 0 {
 			keep = append(keep, window.ID)
+			duration += window.DurationSec()
+			openSlots--
 			continue
 		}
 		move = append(move, window.ID)
 		priorityLoss += float64(window.Priority) + generator.satellites[window.SatelliteID].PriorityWeight
 	}
-	requiresManual := len(keep) > maxInt(1, group.Capacity) || group.ConflictType == constants.ConflictTypeDurationShortfall || group.ConflictType == constants.ConflictTypeBandMismatch
-	return Suggestion{
-		ActionKey: fmt.Sprintf("keep-priority-%d", windows[0].ID), ActionType: "keep_high_priority",
-		Title:         fmt.Sprintf("Keep window #%d on the current plan", windows[0].ID),
-		Rationale:     "Ranks locked windows first, then combines request priority, satellite weight, duration, and stable ID order.",
-		KeepWindowIDs: keep, MoveWindowIDs: move, RequiresManual: requiresManual,
-		Score: Score(generator.weights, priorityLoss, 0, duration, group.Capacity-len(keep)),
+	lockedOverflow := len(lockedWindows) > channels
+	requiresManual := lockedOverflow || group.ConflictType == constants.ConflictTypeDurationShortfall || group.ConflictType == constants.ConflictTypeBandMismatch
+	anchor := generator.rankedAnchor(lockedWindows, openWindows)
+	remainingAfterKeep := maxInt(0, channels-len(keep))
+	title := fmt.Sprintf("Keep window #%d on the current plan", anchor.ID)
+	if len(keep) > 1 {
+		title = fmt.Sprintf("Keep %d windows within the %d available channel(s)", len(keep), channels)
 	}
+	rationale := "Places locked windows first, then fills the remaining channels by request priority, satellite weight, contact duration, and stable ID order; overflow windows are queued for removal."
+	if lockedOverflow {
+		rationale = fmt.Sprintf("Locked windows (%d) exceed the %d available channel(s); every locked window is retained and the conflict is routed to manual planning.", len(lockedWindows), channels)
+	}
+	return Suggestion{
+		ActionKey: fmt.Sprintf("keep-priority-%d", anchor.ID), ActionType: "keep_high_priority",
+		Title: title, Rationale: rationale,
+		KeepWindowIDs: keep, MoveWindowIDs: move, RequiresManual: requiresManual,
+		Score: Score(generator.weights, priorityLoss, 0, duration, remainingAfterKeep),
+	}
+}
+
+// ranksBefore compares two non-locked windows by the documented ranking:
+// combined request priority and satellite weight, then longer contact, then ID.
+func (generator *CandidateGenerator) ranksBefore(left, right model.ContactWindow) bool {
+	leftScore := float64(left.Priority) + generator.satellites[left.SatelliteID].PriorityWeight
+	rightScore := float64(right.Priority) + generator.satellites[right.SatelliteID].PriorityWeight
+	if leftScore != rightScore {
+		return leftScore > rightScore
+	}
+	if left.DurationSec() != right.DurationSec() {
+		return left.DurationSec() > right.DurationSec()
+	}
+	return left.ID < right.ID
+}
+
+func (generator *CandidateGenerator) rankedAnchor(lockedWindows, openWindows []model.ContactWindow) model.ContactWindow {
+	if len(openWindows) > 0 {
+		sorted := append([]model.ContactWindow(nil), openWindows...)
+		sort.SliceStable(sorted, func(i, j int) bool { return generator.ranksBefore(sorted[i], sorted[j]) })
+		return sorted[0]
+	}
+	return lockedWindows[0]
 }
 
 func (generator *CandidateGenerator) alternateWindow(group ConflictGroup) (Suggestion, bool) {

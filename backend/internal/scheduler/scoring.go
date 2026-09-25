@@ -27,6 +27,9 @@ type Suggestion struct {
 	Rationale         string         `json:"rationale"`
 	KeepWindowIDs     []uint         `json:"keep_window_ids"`
 	MoveWindowIDs     []uint         `json:"move_window_ids"`
+	KeptCount         int            `json:"kept_count"`
+	MovedCount        int            `json:"moved_count"`
+	AvailableChannels int            `json:"available_channels"`
 	TargetStationID   *uint          `json:"target_station_id,omitempty"`
 	AlternateWindowID *uint          `json:"alternate_window_id,omitempty"`
 	RequiresManual    bool           `json:"requires_manual"`

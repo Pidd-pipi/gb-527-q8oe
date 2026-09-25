@@ -12,6 +12,7 @@ import { ConflictResolution, ResolutionSuggestion } from '../../types/conflict';
         [class.selected]="selectedKey === suggestion.action_key" [disabled]="readonly" (click)="choose(suggestion)">
         <span class="rank">{{ index + 1 }}</span>
         <span class="body"><strong>{{ suggestion.title }}</strong><small>{{ suggestion.rationale }}</small>
+          <span class="counts"><i class="kept">kept {{ suggestion.kept_count }}</i><i class="moved">to move {{ suggestion.moved_count }}</i><i class="channels">free channels {{ suggestion.available_channels }}</i></span>
           <span class="tags"><i>score {{ suggestion.score.total_score | number:'1.2-2' }}</i><i>loss {{ suggestion.score.priority_loss }}</i><i>{{ suggestion.score.contact_duration_sec }} sec</i><i *ngIf="suggestion.requires_manual">manual</i></span>
         </span>
         <span class="choice">{{ selectedKey === suggestion.action_key ? 'SELECTED' : 'SELECT' }}</span>
@@ -30,6 +31,11 @@ import { ConflictResolution, ResolutionSuggestion } from '../../types/conflict';
     .body small { margin-top: 5px; color: #66716d; font-size: 11px; line-height: 1.45; }
     .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
     .tags i { padding: 2px 6px; background: #e9eeea; font-size: 9px; font-style: normal; text-transform: uppercase; }
+    .counts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+    .counts i { padding: 3px 7px; font-size: 10px; font-style: normal; font-weight: 800; text-transform: uppercase; border-radius: 2px; }
+    .counts .kept { background: #dcebe4; color: #1c625b; }
+    .counts .moved { background: #f4e2dc; color: #8a4126; }
+    .counts .channels { background: #e2e7f0; color: #34507a; }
     .choice { align-self: center; color: #1c625b; font-size: 9px; font-weight: 800; }
     @media (max-width: 560px) { .suggestion { grid-template-columns: 26px 1fr; } .choice { display: none; } }
   `],

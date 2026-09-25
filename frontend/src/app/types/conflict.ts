@@ -18,6 +18,9 @@ export interface ResolutionSuggestion {
   rationale: string;
   keep_window_ids: number[];
   move_window_ids: number[];
+  kept_count: number;
+  moved_count: number;
+  available_channels: number;
   target_station_id?: number;
   alternate_window_id?: number;
   requires_manual: boolean;
